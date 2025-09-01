@@ -238,3 +238,51 @@ export type { UIStateTree as EditorUIStateTree, TextBlock, ImageBlock, ListBlock
 
 // Re-export from data models module
 export type { User, Contact, ContactGroup, Consent, Project, Asset, GraphNodeType, AssetMetadata, EncryptedContactDetails, ConsentScope } from './data-models';
+
+// Re-export from minnenas-bok module
+export type { MemoryLink, ConversationStarter, ThematicAnalysisResult, MemoryDiscoveryConsent, DiscoveryTask } from './minnenas-bok';
+
+// Re-export from legacy-system module
+export type { 
+  LegacyContent, 
+  LegacyTrigger, 
+  LegacyTriggerType, 
+  LegacyTriggerConfig,
+  TimeBasedTriggerConfig,
+  EventBasedTriggerConfig,
+  QueryBasedTriggerConfig,
+  LegacyRecipient,
+  DeliveryAttempt,
+  DeliveryResult,
+  LegacyContentStatus,
+  DeliveryStatus,
+  ConsentStatus,
+  DigitalExecutor,
+  LegacySystemConfig
+} from './legacy-system';
+
+// Empatibryggan types
+export interface EmotionalResponsePrediction {
+  predicted_user_state: UserState;
+  predicted_delta: RelationalDelta;
+  intervention_level: 'none' | 'low' | 'medium' | 'high';
+  confidence: number;
+  timestamp: Date;
+}
+
+export interface MessageSuggestion {
+  type: 'clarity' | 'empathy' | 'tone';
+  original_message: string;
+  suggested_message: string;
+  explanation: string;
+  confidence: number;
+  reasoning: 'neutral_communication_guidance';
+}
+
+export interface CommunicationPatterns {
+  emotional_intensity: number;
+  conflict_sensitivity: number;
+  communication_style: 'direct' | 'cautious' | 'balanced';
+  reliability: number;
+  pattern_count: number;
+}

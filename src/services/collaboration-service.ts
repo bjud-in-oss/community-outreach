@@ -1,623 +1,631 @@
 /**
  * Collaboration Service
- * 
- * Handles real-time collaboration features including:
- * - WebSocket connections for real-time updates
- * - Block-level locking management
- * - Conflict resolution with semantic diff
- * - User presence tracking
+ * Implements secure invitation system, proactive contact suggestions, and collaborative editing
  */
 
-import { UIStateTree, ContentBlock, EditorState } from '@/types/editor';
-
-export interface CollaborationUser {
-  id: string;
-  name: string;
-  avatar?: string;
-  color: string;
-  isOnline: boolean;
-  lastSeen: Date;
-}
-
-export interface BlockLock {
-  blockId: string;
-  userId: string;
-  userName: string;
-  lockedAt: Date;
-  expiresAt: Date;
-}
-
-export interface CollaborationEvent {
-  type: 'block_locked' | 'block_unlocked' | 'block_updated' | 'user_joined' | 'user_left' | 'document_updated';
-  userId: string;
-  timestamp: Date;
-  data: any;
-}
-
-export interface SemanticDiff {
-  id: string;
-  blockId: string;
-  before: ContentBlock;
-  after: ContentBlock;
-  changes: {
-    type: 'addition' | 'deletion' | 'modification';
-    path: string;
-    oldValue?: any;
-    newValue?: any;
-    description: string;
-  }[];
-  conflictResolution?: 'accept' | 'reject' | 'merge';
-}
-
-export interface CollaborationState {
-  documentId: string;
-  users: Map<string, CollaborationUser>;
-  locks: Map<string, BlockLock>;
-  pendingDiffs: Map<string, SemanticDiff>;
-  isConnected: boolean;
-  connectionStatus: 'connecting' | 'connected' | 'disconnected' | 'error';
-  lastSyncAt?: Date;
-}
-
-export type CollaborationEventHandler = (event: CollaborationEvent) => void;
+import { 
+  CollaborationInvitation,
+  CollaborativeSession,
+  ContactSuggestion,
+  CollaborationConsent,
+  GuestAccessControl,
+  PermissionLevel,
+  InvitationStatus,
+  SessionParticipant,
+  BlockLock,
+  SuggestionReason,
+  ConsentScope,
+  AccessibleResource
+} from '../types/collaboration';
+import { UserState, User } from '../types';
+import { MemoryAssistant } from '../lib/memory';
+import { CognitiveAgent } from '../lib/cognitive-agent';
+import { ResourceGovernor } from '../lib/resource-governor';
 
 /**
- * Mock WebSocket implementation for development
- * In production, this would connect to a real WebSocket server
+ * Collaboration Service
+ * Handles collaborative spaces, invitations, and consent management
  */
-class MockWebSocket {
-  private handlers: Map<string, Function[]> = new Map();
-  private isOpen = false;
-  
-  constructor(private url: string) {
-    // Simulate connection delay
-    setTimeout(() => {
-      this.isOpen = true;
-      this.emit('open', {});
-    }, 100);
-  }
-  
-  on(event: string, handler: Function) {
-    if (!this.handlers.has(event)) {
-      this.handlers.set(event, []);
-    }
-    this.handlers.get(event)!.push(handler);
-  }
-  
-  off(event: string, handler: Function) {
-    const handlers = this.handlers.get(event);
-    if (handlers) {
-      const index = handlers.indexOf(handler);
-      if (index > -1) {
-        handlers.splice(index, 1);
-      }
-    }
-  }
-  
-  send(data: string) {
-    if (!this.isOpen) {
-      throw new Error('WebSocket is not open');
-    }
-    
-    // Simulate server response for testing
-    const message = JSON.parse(data);
-    setTimeout(() => {
-      this.emit('message', { data: JSON.stringify({ ...message, status: 'success' }) });
-    }, 50);
-  }
-  
-  close() {
-    this.isOpen = false;
-    this.emit('close', {});
-  }
-  
-  private emit(event: string, data: any) {
-    const handlers = this.handlers.get(event);
-    if (handlers) {
-      handlers.forEach(handler => handler(data));
-    }
-  }
-}
-
 export class CollaborationService {
-  private ws: MockWebSocket | null = null;
-  private state: CollaborationState;
-  private eventHandlers: Map<string, CollaborationEventHandler[]> = new Map();
-  private lockTimeout = 30000; // 30 seconds
-  private heartbeatInterval: NodeJS.Timeout | null = null;
-  
+  private memoryAssistant: MemoryAssistant;
+  private cognitiveAgent: CognitiveAgent;
+  private resourceGovernor: ResourceGovernor;
+
   constructor(
-    private documentId: string,
-    private userId: string,
-    private userName: string
+    memoryAssistant: MemoryAssistant,
+    cognitiveAgent: CognitiveAgent,
+    resourceGovernor: ResourceGovernor
   ) {
-    this.state = {
-      documentId,
-      users: new Map(),
-      locks: new Map(),
-      pendingDiffs: new Map(),
-      isConnected: false,
-      connectionStatus: 'disconnected'
-    };
+    this.memoryAssistant = memoryAssistant;
+    this.cognitiveAgent = cognitiveAgent;
+    this.resourceGovernor = resourceGovernor;
   }
-  
+
   /**
-   * Connect to the collaboration server
+   * Create and send collaboration invitation
+   * Requirement 20.1: Secure invitation system with permission levels
    */
-  async connect(): Promise<void> {
-    if (this.ws) {
-      return;
-    }
-    
-    this.state.connectionStatus = 'connecting';
-    
-    try {
-      // In production, this would be a real WebSocket URL
-      this.ws = new MockWebSocket(`ws://localhost:3001/collaboration/${this.documentId}`);
-      
-      this.ws.on('open', this.handleOpen.bind(this));
-      this.ws.on('message', this.handleMessage.bind(this));
-      this.ws.on('close', this.handleClose.bind(this));
-      this.ws.on('error', this.handleError.bind(this));
-      
-      // Start heartbeat
-      this.startHeartbeat();
-      
-    } catch (error) {
-      this.state.connectionStatus = 'error';
-      throw error;
-    }
-  }
-  
-  /**
-   * Disconnect from the collaboration server
-   */
-  disconnect(): void {
-    if (this.ws) {
-      this.ws.close();
-      this.ws = null;
-    }
-    
-    if (this.heartbeatInterval) {
-      clearInterval(this.heartbeatInterval);
-      this.heartbeatInterval = null;
-    }
-    
-    this.state.isConnected = false;
-    this.state.connectionStatus = 'disconnected';
-  }
-  
-  /**
-   * Request a lock on a specific block
-   */
-  async requestBlockLock(blockId: string): Promise<boolean> {
-    if (!this.ws || !this.state.isConnected) {
-      return false;
-    }
-    
-    // Check if block is already locked
-    const existingLock = this.state.locks.get(blockId);
-    if (existingLock && existingLock.userId !== this.userId) {
-      return false;
-    }
-    
-    const lockRequest = {
-      type: 'request_lock',
-      blockId,
-      userId: this.userId,
-      userName: this.userName,
-      timestamp: new Date().toISOString()
-    };
-    
-    try {
-      this.ws.send(JSON.stringify(lockRequest));
-      
-      // Create optimistic lock
-      const lock: BlockLock = {
-        blockId,
-        userId: this.userId,
-        userName: this.userName,
-        lockedAt: new Date(),
-        expiresAt: new Date(Date.now() + this.lockTimeout)
-      };
-      
-      this.state.locks.set(blockId, lock);
-      
-      // Emit lock event
-      this.emitEvent({
-        type: 'block_locked',
-        userId: this.userId,
-        timestamp: new Date(),
-        data: { blockId, lock }
-      });
-      
-      return true;
-    } catch (error) {
-      console.error('Failed to request block lock:', error);
-      return false;
-    }
-  }
-  
-  /**
-   * Release a lock on a specific block
-   */
-  async releaseBlockLock(blockId: string): Promise<void> {
-    if (!this.ws || !this.state.isConnected) {
-      return;
-    }
-    
-    const lock = this.state.locks.get(blockId);
-    if (!lock || lock.userId !== this.userId) {
-      return;
-    }
-    
-    const unlockRequest = {
-      type: 'release_lock',
-      blockId,
-      userId: this.userId,
-      timestamp: new Date().toISOString()
-    };
-    
-    try {
-      this.ws.send(JSON.stringify(unlockRequest));
-      this.state.locks.delete(blockId);
-      
-      // Emit unlock event
-      this.emitEvent({
-        type: 'block_unlocked',
-        userId: this.userId,
-        timestamp: new Date(),
-        data: { blockId }
-      });
-    } catch (error) {
-      console.error('Failed to release block lock:', error);
-    }
-  }
-  
-  /**
-   * Send block update to other collaborators
-   */
-  async sendBlockUpdate(blockId: string, block: ContentBlock): Promise<void> {
-    if (!this.ws || !this.state.isConnected) {
-      return;
-    }
-    
-    const updateMessage = {
-      type: 'block_update',
-      blockId,
-      block,
-      userId: this.userId,
-      timestamp: new Date().toISOString()
-    };
-    
-    try {
-      this.ws.send(JSON.stringify(updateMessage));
-    } catch (error) {
-      console.error('Failed to send block update:', error);
-    }
-  }
-  
-  /**
-   * Create a semantic diff for conflict resolution
-   */
-  createSemanticDiff(blockId: string, before: ContentBlock, after: ContentBlock): SemanticDiff {
-    const changes: SemanticDiff['changes'] = [];
-    
-    // Compare content
-    if (JSON.stringify(before.content) !== JSON.stringify(after.content)) {
-      changes.push({
-        type: 'modification',
-        path: 'content',
-        oldValue: before.content,
-        newValue: after.content,
-        description: 'Content was modified'
-      });
-    }
-    
-    // Compare metadata
-    if (JSON.stringify(before.metadata) !== JSON.stringify(after.metadata)) {
-      changes.push({
-        type: 'modification',
-        path: 'metadata',
-        oldValue: before.metadata,
-        newValue: after.metadata,
-        description: 'Metadata was updated'
-      });
-    }
-    
-    return {
-      id: `diff-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      blockId,
-      before,
-      after,
-      changes
-    };
-  }
-  
-  /**
-   * Resolve a semantic diff conflict
-   */
-  async resolveConflict(diffId: string, resolution: 'accept' | 'reject' | 'merge'): Promise<void> {
-    const diff = this.state.pendingDiffs.get(diffId);
-    if (!diff) {
-      return;
-    }
-    
-    diff.conflictResolution = resolution;
-    
-    const resolutionMessage = {
-      type: 'resolve_conflict',
-      diffId,
-      resolution,
-      userId: this.userId,
-      timestamp: new Date().toISOString()
-    };
-    
-    try {
-      if (this.ws && this.state.isConnected) {
-        this.ws.send(JSON.stringify(resolutionMessage));
-      }
-      
-      // Remove from pending diffs
-      this.state.pendingDiffs.delete(diffId);
-    } catch (error) {
-      console.error('Failed to resolve conflict:', error);
-    }
-  }
-  
-  /**
-   * Get current collaboration state
-   */
-  getState(): CollaborationState {
-    return { ...this.state };
-  }
-  
-  /**
-   * Get active users
-   */
-  getActiveUsers(): CollaborationUser[] {
-    return Array.from(this.state.users.values()).filter(user => user.isOnline);
-  }
-  
-  /**
-   * Get locked blocks
-   */
-  getLockedBlocks(): BlockLock[] {
-    return Array.from(this.state.locks.values());
-  }
-  
-  /**
-   * Check if a block is locked by another user
-   */
-  isBlockLocked(blockId: string): boolean {
-    const lock = this.state.locks.get(blockId);
-    return lock !== undefined && lock.userId !== this.userId;
-  }
-  
-  /**
-   * Get the user who has locked a block
-   */
-  getBlockLocker(blockId: string): string | undefined {
-    const lock = this.state.locks.get(blockId);
-    return lock?.userId;
-  }
-  
-  /**
-   * Add event handler
-   */
-  on(eventType: string, handler: CollaborationEventHandler): void {
-    if (!this.eventHandlers.has(eventType)) {
-      this.eventHandlers.set(eventType, []);
-    }
-    this.eventHandlers.get(eventType)!.push(handler);
-  }
-  
-  /**
-   * Remove event handler
-   */
-  off(eventType: string, handler: CollaborationEventHandler): void {
-    const handlers = this.eventHandlers.get(eventType);
-    if (handlers) {
-      const index = handlers.indexOf(handler);
-      if (index > -1) {
-        handlers.splice(index, 1);
-      }
-    }
-  }
-  
-  private handleOpen(): void {
-    this.state.isConnected = true;
-    this.state.connectionStatus = 'connected';
-    this.state.lastSyncAt = new Date();
-    
-    // Send join message
-    const joinMessage = {
-      type: 'user_join',
-      userId: this.userId,
-      userName: this.userName,
-      timestamp: new Date().toISOString()
-    };
-    
-    if (this.ws) {
-      this.ws.send(JSON.stringify(joinMessage));
-    }
-  }
-  
-  private handleMessage(event: { data: string }): void {
-    try {
-      const message = JSON.parse(event.data);
-      this.processCollaborationMessage(message);
-    } catch (error) {
-      console.error('Failed to parse collaboration message:', error);
-    }
-  }
-  
-  private handleClose(): void {
-    this.state.isConnected = false;
-    this.state.connectionStatus = 'disconnected';
-    
-    // Clear all locks
-    this.state.locks.clear();
-    
-    // Mark all users as offline
-    this.state.users.forEach(user => {
-      user.isOnline = false;
-      user.lastSeen = new Date();
+  async createInvitation(
+    senderId: string,
+    recipientId: string,
+    resourceId: string,
+    resourceType: 'reflection' | 'project' | 'page',
+    permissionLevel: PermissionLevel,
+    message?: string
+  ): Promise<CollaborationInvitation> {
+    // Validate resource usage
+    await this.resourceGovernor.validateAction({
+      type: 'create_invitation',
+      userId: senderId,
+      resourceCost: { compute: 1 }
     });
-  }
-  
-  private handleError(error: any): void {
-    console.error('Collaboration WebSocket error:', error);
-    this.state.connectionStatus = 'error';
-  }
-  
-  private processCollaborationMessage(message: any): void {
-    const event: CollaborationEvent = {
-      type: message.type,
-      userId: message.userId,
-      timestamp: new Date(message.timestamp),
-      data: message
+
+    // Verify sender has permission to invite others to this resource
+    const hasPermission = await this.verifyInvitationPermission(senderId, resourceId, resourceType);
+    if (!hasPermission) {
+      throw new Error('Insufficient permissions to invite others to this resource');
+    }
+
+    const invitation: CollaborationInvitation = {
+      id: this.generateId(),
+      sender_id: senderId,
+      recipient_id: recipientId,
+      recipient_type: 'user',
+      resource_id: resourceId,
+      resource_type: resourceType,
+      permission_level: permissionLevel,
+      message,
+      status: 'pending',
+      created_at: new Date(),
+      expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days
     };
-    
-    switch (message.type) {
-      case 'block_locked':
-        this.handleBlockLocked(message);
-        break;
-      case 'block_unlocked':
-        this.handleBlockUnlocked(message);
-        break;
-      case 'block_updated':
-        this.handleBlockUpdated(message);
-        break;
-      case 'user_joined':
-        this.handleUserJoined(message);
-        break;
-      case 'user_left':
-        this.handleUserLeft(message);
-        break;
-      case 'conflict_detected':
-        this.handleConflictDetected(message);
-        break;
-    }
-    
-    this.emitEvent(event);
+
+    // Save invitation
+    await this.memoryAssistant.saveInvitation(invitation);
+
+    // Create consent requirement for sender
+    await this.createConsentRequirement(senderId, invitation.id, 'send_invitation');
+
+    // Send notification to recipient
+    await this.sendInvitationNotification(invitation);
+
+    return invitation;
   }
-  
-  private handleBlockLocked(message: any): void {
-    if (message.userId === this.userId) {
-      return; // Ignore our own lock messages
+
+  /**
+   * Respond to collaboration invitation
+   * Requirement 20.3: Mutual consent requirement for collaboration
+   */
+  async respondToInvitation(
+    invitationId: string,
+    recipientId: string,
+    response: 'accept' | 'decline',
+    responseMessage?: string
+  ): Promise<CollaborationInvitation> {
+    const invitation = await this.memoryAssistant.getInvitation(invitationId);
+    if (!invitation) {
+      throw new Error(`Invitation ${invitationId} not found`);
     }
-    
+
+    if (invitation.recipient_id !== recipientId) {
+      throw new Error('Unauthorized to respond to this invitation');
+    }
+
+    if (invitation.status !== 'pending') {
+      throw new Error(`Cannot respond to invitation with status: ${invitation.status}`);
+    }
+
+    // Update invitation
+    invitation.status = response === 'accept' ? 'accepted' : 'declined';
+    invitation.responded_at = new Date();
+    invitation.response_message = responseMessage;
+
+    await this.memoryAssistant.saveInvitation(invitation);
+
+    if (response === 'accept') {
+      // Create mutual consent records
+      await this.createMutualConsent(invitation);
+      
+      // Setup collaborative session if needed
+      await this.setupCollaborativeSession(invitation);
+    }
+
+    // Notify sender of response
+    await this.sendResponseNotification(invitation);
+
+    return invitation;
+  }
+
+  /**
+   * Get proactive contact suggestions
+   * Requirement 20.2: Proactive contact suggestion based on Graph RAG analysis
+   */
+  async getContactSuggestions(
+    userId: string,
+    currentTask: string,
+    userState: UserState,
+    themes: string[]
+  ): Promise<ContactSuggestion[]> {
+    // Validate resource usage for Graph RAG analysis
+    await this.resourceGovernor.validateAction({
+      type: 'analyze_graph_rag',
+      userId,
+      resourceCost: { compute: 3 }
+    });
+
+    const suggestions: ContactSuggestion[] = [];
+
+    // Analyze Graph RAG for relevant contacts
+    const analysisResult = await this.cognitiveAgent.processInput({
+      text: `Analyze user's contacts and collaboration history to suggest relevant people for task: "${currentTask}" with themes: ${themes.join(', ')}`,
+      type: 'command',
+      timestamp: new Date()
+    });
+
+    // Get contacts with similar theme experience
+    const themeMatches = await this.findContactsByTheme(userId, themes);
+    for (const contact of themeMatches) {
+      suggestions.push({
+        id: this.generateId(),
+        contact_id: contact.id,
+        contact_name: contact.name,
+        reason: 'similar_theme',
+        confidence: contact.confidence,
+        evidence: [
+          {
+            type: 'theme_overlap',
+            description: `Has worked on ${contact.sharedThemes.length} similar themes`,
+            strength: contact.confidence,
+            data: { shared_themes: contact.sharedThemes }
+          }
+        ],
+        context: {
+          current_task: currentTask,
+          user_state: userState,
+          themes,
+          urgency: this.assessUrgency(userState)
+        },
+        created_at: new Date(),
+        status: 'pending'
+      });
+    }
+
+    // Get contacts with relevant expertise
+    const expertiseMatches = await this.findContactsByExpertise(userId, currentTask);
+    for (const contact of expertiseMatches) {
+      suggestions.push({
+        id: this.generateId(),
+        contact_id: contact.id,
+        contact_name: contact.name,
+        reason: 'expertise_match',
+        confidence: contact.confidence,
+        evidence: [
+          {
+            type: 'skill_match',
+            description: `Has expertise in ${contact.skills.join(', ')}`,
+            strength: contact.confidence,
+            data: { skills: contact.skills }
+          }
+        ],
+        context: {
+          current_task: currentTask,
+          user_state: userState,
+          themes,
+          required_skills: contact.skills,
+          urgency: this.assessUrgency(userState)
+        },
+        created_at: new Date(),
+        status: 'pending'
+      });
+    }
+
+    // Get frequent collaborators
+    const frequentCollaborators = await this.findFrequentCollaborators(userId);
+    for (const contact of frequentCollaborators) {
+      suggestions.push({
+        id: this.generateId(),
+        contact_id: contact.id,
+        contact_name: contact.name,
+        reason: 'frequent_collaborator',
+        confidence: contact.confidence,
+        evidence: [
+          {
+            type: 'collaboration_history',
+            description: `Collaborated ${contact.collaborationCount} times in the past`,
+            strength: contact.confidence,
+            data: { collaboration_count: contact.collaborationCount }
+          }
+        ],
+        context: {
+          current_task: currentTask,
+          user_state: userState,
+          themes,
+          urgency: this.assessUrgency(userState)
+        },
+        created_at: new Date(),
+        status: 'pending'
+      });
+    }
+
+    // Sort by confidence and return top suggestions
+    return suggestions
+      .sort((a, b) => b.confidence - a.confidence)
+      .slice(0, 5);
+  }
+
+  /**
+   * Create collaborative session
+   * Requirement 20.4: Collaborative session with soft block-level locking
+   */
+  async createCollaborativeSession(
+    resourceId: string,
+    resourceType: 'reflection' | 'project' | 'page',
+    hostUserId: string,
+    participants: string[]
+  ): Promise<CollaborativeSession> {
+    const session: CollaborativeSession = {
+      id: this.generateId(),
+      resource_id: resourceId,
+      resource_type: resourceType,
+      participants: [],
+      block_locks: [],
+      status: 'active',
+      started_at: new Date(),
+      last_activity_at: new Date(),
+      metadata: {
+        settings: {
+          allow_anonymous: false,
+          require_approval: true,
+          auto_save_interval: 30,
+          lock_timeout: 300, // 5 minutes
+          max_participants: 10
+        },
+        activity_log: []
+      }
+    };
+
+    // Add host as first participant
+    await this.addParticipant(session.id, hostUserId, 'admin');
+
+    // Add invited participants
+    for (const participantId of participants) {
+      await this.addParticipant(session.id, participantId, 'editor');
+    }
+
+    await this.memoryAssistant.saveCollaborativeSession(session);
+    return session;
+  }
+
+  /**
+   * Acquire block lock for editing
+   * Implements soft block-level locking
+   */
+  async acquireBlockLock(
+    sessionId: string,
+    userId: string,
+    blockId: string,
+    lockType: 'editing' | 'viewing' | 'reserved' = 'editing'
+  ): Promise<BlockLock> {
+    const session = await this.memoryAssistant.getCollaborativeSession(sessionId);
+    if (!session) {
+      throw new Error(`Session ${sessionId} not found`);
+    }
+
+    // Check if block is already locked
+    const existingLock = session.block_locks.find(lock => 
+      lock.block_id === blockId && lock.expires_at > new Date()
+    );
+
+    if (existingLock && existingLock.user_id !== userId) {
+      throw new Error(`Block ${blockId} is already locked by another user`);
+    }
+
     const lock: BlockLock = {
-      blockId: message.blockId,
-      userId: message.userId,
-      userName: message.userName,
-      lockedAt: new Date(message.timestamp),
-      expiresAt: new Date(Date.now() + this.lockTimeout)
+      block_id: blockId,
+      user_id: userId,
+      type: lockType,
+      acquired_at: new Date(),
+      expires_at: new Date(Date.now() + session.metadata.settings.lock_timeout * 1000)
     };
-    
-    this.state.locks.set(message.blockId, lock);
+
+    // Add lock to session
+    session.block_locks = session.block_locks.filter(l => 
+      !(l.block_id === blockId && l.user_id === userId)
+    );
+    session.block_locks.push(lock);
+    session.last_activity_at = new Date();
+
+    await this.memoryAssistant.saveCollaborativeSession(session);
+
+    // Log activity
+    await this.logSessionActivity(sessionId, userId, 'locked', `Acquired ${lockType} lock on block ${blockId}`);
+
+    return lock;
   }
-  
-  private handleBlockUnlocked(message: any): void {
-    if (message.userId === this.userId) {
-      return; // Ignore our own unlock messages
+
+  /**
+   * Release block lock
+   */
+  async releaseBlockLock(
+    sessionId: string,
+    userId: string,
+    blockId: string
+  ): Promise<void> {
+    const session = await this.memoryAssistant.getCollaborativeSession(sessionId);
+    if (!session) {
+      throw new Error(`Session ${sessionId} not found`);
     }
-    
-    this.state.locks.delete(message.blockId);
+
+    // Remove lock
+    session.block_locks = session.block_locks.filter(lock => 
+      !(lock.block_id === blockId && lock.user_id === userId)
+    );
+    session.last_activity_at = new Date();
+
+    await this.memoryAssistant.saveCollaborativeSession(session);
+
+    // Log activity
+    await this.logSessionActivity(sessionId, userId, 'unlocked', `Released lock on block ${blockId}`);
   }
-  
-  private handleBlockUpdated(message: any): void {
-    if (message.userId === this.userId) {
-      return; // Ignore our own updates
-    }
-    
-    // This would trigger a re-render in the editor
-    // The editor component should listen for these events
-  }
-  
-  private handleUserJoined(message: any): void {
-    const user: CollaborationUser = {
-      id: message.userId,
-      name: message.userName,
-      avatar: message.avatar,
-      color: this.generateUserColor(message.userId),
-      isOnline: true,
-      lastSeen: new Date()
-    };
-    
-    this.state.users.set(message.userId, user);
-  }
-  
-  private handleUserLeft(message: any): void {
-    const user = this.state.users.get(message.userId);
-    if (user) {
-      user.isOnline = false;
-      user.lastSeen = new Date();
-    }
-    
-    // Remove all locks by this user
-    for (const [blockId, lock] of this.state.locks.entries()) {
-      if (lock.userId === message.userId) {
-        this.state.locks.delete(blockId);
-      }
-    }
-  }
-  
-  private handleConflictDetected(message: any): void {
-    const diff: SemanticDiff = {
-      id: message.diffId,
-      blockId: message.blockId,
-      before: message.before,
-      after: message.after,
-      changes: message.changes
-    };
-    
-    this.state.pendingDiffs.set(message.diffId, diff);
-  }
-  
-  private startHeartbeat(): void {
-    this.heartbeatInterval = setInterval(() => {
-      if (this.ws && this.state.isConnected) {
-        const heartbeat = {
-          type: 'heartbeat',
-          userId: this.userId,
-          timestamp: new Date().toISOString()
-        };
-        
-        try {
-          this.ws.send(JSON.stringify(heartbeat));
-        } catch (error) {
-          console.error('Heartbeat failed:', error);
+
+  /**
+   * Setup guest access control
+   * Requirement 20.6: Guest user data access limitation
+   */
+  async setupGuestAccess(
+    guestUserId: string,
+    hostUserId: string,
+    sessionId: string,
+    accessibleResources: AccessibleResource[]
+  ): Promise<GuestAccessControl> {
+    const accessControl: GuestAccessControl = {
+      id: this.generateId(),
+      guest_user_id: guestUserId,
+      host_user_id: hostUserId,
+      accessible_resources: accessibleResources,
+      restrictions: [
+        {
+          type: 'time_window',
+          description: 'Access limited to session duration',
+          parameters: { max_duration_hours: 24 },
+          enforcement: 'strict'
+        },
+        {
+          type: 'content_filter',
+          description: 'Cannot access private content',
+          parameters: { exclude_private: true },
+          enforcement: 'strict'
         }
-      }
-    }, 30000); // Send heartbeat every 30 seconds
+      ],
+      session_id: sessionId,
+      granted_at: new Date(),
+      expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours
+    };
+
+    await this.memoryAssistant.saveGuestAccessControl(accessControl);
+    return accessControl;
   }
-  
-  private generateUserColor(userId: string): string {
-    const colors = [
-      '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7',
-      '#DDA0DD', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E9'
-    ];
-    
-    let hash = 0;
-    for (let i = 0; i < userId.length; i++) {
-      hash = userId.charCodeAt(i) + ((hash << 5) - hash);
+
+  /**
+   * Verify guest access to resource
+   */
+  async verifyGuestAccess(
+    guestUserId: string,
+    resourceId: string,
+    accessType: 'read' | 'write'
+  ): Promise<boolean> {
+    const accessControl = await this.memoryAssistant.getGuestAccessControl(guestUserId);
+    if (!accessControl || accessControl.expires_at < new Date()) {
+      return false;
     }
-    
-    return colors[Math.abs(hash) % colors.length];
+
+    const resource = accessControl.accessible_resources.find(r => r.resource_id === resourceId);
+    if (!resource) {
+      return false;
+    }
+
+    return resource.access_level === accessType || 
+           (accessType === 'read' && resource.access_level === 'write');
   }
-  
-  private emitEvent(event: CollaborationEvent): void {
-    const handlers = this.eventHandlers.get(event.type);
-    if (handlers) {
-      handlers.forEach(handler => handler(event));
+
+  // Private helper methods
+
+  private generateId(): string {
+    return `collab_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  }
+
+  private async verifyInvitationPermission(
+    userId: string,
+    resourceId: string,
+    resourceType: string
+  ): Promise<boolean> {
+    // Check if user owns or has admin permission on the resource
+    const resource = await this.memoryAssistant.getResource(resourceId, resourceType);
+    return resource?.owner_id === userId || resource?.permissions?.includes('admin');
+  }
+
+  private async createConsentRequirement(
+    userId: string,
+    invitationId: string,
+    action: string
+  ): Promise<void> {
+    const consent: CollaborationConsent = {
+      id: this.generateId(),
+      user_id: userId,
+      invitation_id: invitationId,
+      scope: {
+        resource_access: 'write',
+        data_sharing: true,
+        notifications: true,
+        analytics: false,
+        third_party_sharing: false
+      },
+      status: 'active',
+      granted_at: new Date()
+    };
+
+    await this.memoryAssistant.saveCollaborationConsent(consent);
+  }
+
+  private async createMutualConsent(invitation: CollaborationInvitation): Promise<void> {
+    // Create consent for recipient
+    const recipientConsent: CollaborationConsent = {
+      id: this.generateId(),
+      user_id: invitation.recipient_id,
+      invitation_id: invitation.id,
+      scope: {
+        resource_access: invitation.permission_level === 'viewer' ? 'read' : 'write',
+        data_sharing: true,
+        notifications: true,
+        analytics: false,
+        third_party_sharing: false
+      },
+      status: 'active',
+      granted_at: new Date()
+    };
+
+    await this.memoryAssistant.saveCollaborationConsent(recipientConsent);
+  }
+
+  private async setupCollaborativeSession(invitation: CollaborationInvitation): Promise<void> {
+    // Check if session already exists for this resource
+    const existingSession = await this.memoryAssistant.getCollaborativeSessionByResource(
+      invitation.resource_id
+    );
+
+    if (existingSession) {
+      // Add participant to existing session
+      await this.addParticipant(existingSession.id, invitation.recipient_id, invitation.permission_level);
+    } else {
+      // Create new session
+      await this.createCollaborativeSession(
+        invitation.resource_id,
+        invitation.resource_type,
+        invitation.sender_id,
+        [invitation.recipient_id]
+      );
     }
-    
-    // Also emit to 'all' handlers
-    const allHandlers = this.eventHandlers.get('*');
-    if (allHandlers) {
-      allHandlers.forEach(handler => handler(event));
-    }
+  }
+
+  private async addParticipant(
+    sessionId: string,
+    userId: string,
+    permissionLevel: PermissionLevel
+  ): Promise<void> {
+    const session = await this.memoryAssistant.getCollaborativeSession(sessionId);
+    if (!session) return;
+
+    const user = await this.memoryAssistant.getUser(userId);
+    const participant: SessionParticipant = {
+      user_id: userId,
+      display_name: user?.profile?.display_name || 'Unknown User',
+      permission_level: permissionLevel,
+      joined_at: new Date(),
+      last_seen_at: new Date(),
+      status: 'active'
+    };
+
+    session.participants.push(participant);
+    await this.memoryAssistant.saveCollaborativeSession(session);
+
+    // Log activity
+    await this.logSessionActivity(sessionId, userId, 'joined', `Joined session with ${permissionLevel} permissions`);
+  }
+
+  private async logSessionActivity(
+    sessionId: string,
+    userId: string,
+    type: 'joined' | 'left' | 'edited' | 'locked' | 'unlocked',
+    description: string
+  ): Promise<void> {
+    const session = await this.memoryAssistant.getCollaborativeSession(sessionId);
+    if (!session) return;
+
+    session.metadata.activity_log.push({
+      id: this.generateId(),
+      user_id: userId,
+      type,
+      description,
+      timestamp: new Date()
+    });
+
+    await this.memoryAssistant.saveCollaborativeSession(session);
+  }
+
+  private async findContactsByTheme(userId: string, themes: string[]): Promise<any[]> {
+    // Query Graph RAG for contacts who have worked on similar themes
+    const contacts = await this.memoryAssistant.queryGraphRAG(
+      `MATCH (u:User {id: $userId})-[:KNOWS]->(c:Contact)-[:PARTICIPATED_IN]->(e:Event)-[:RELATES_TO]->(t:Theme)
+       WHERE t.name IN $themes
+       RETURN c, COUNT(e) as collaboration_count, COLLECT(t.name) as shared_themes`,
+      { userId, themes }
+    );
+
+    return contacts.map((record: any) => ({
+      id: record.c.id,
+      name: record.c.name,
+      confidence: Math.min(record.collaboration_count / 10, 1),
+      sharedThemes: record.shared_themes
+    }));
+  }
+
+  private async findContactsByExpertise(userId: string, task: string): Promise<any[]> {
+    // Use cognitive agent to analyze task and find relevant skills
+    const skillAnalysis = await this.cognitiveAgent.processInput({
+      text: `Analyze this task and identify required skills: "${task}"`,
+      type: 'command',
+      timestamp: new Date()
+    });
+
+    // Query Graph RAG for contacts with relevant skills
+    const contacts = await this.memoryAssistant.queryGraphRAG(
+      `MATCH (u:User {id: $userId})-[:KNOWS]->(c:Contact)-[:HAS_SKILL]->(s:Skill)
+       WHERE s.name CONTAINS $taskKeywords
+       RETURN c, COLLECT(s.name) as skills, COUNT(s) as skill_count`,
+      { userId, taskKeywords: task }
+    );
+
+    return contacts.map((record: any) => ({
+      id: record.c.id,
+      name: record.c.name,
+      confidence: Math.min(record.skill_count / 5, 1),
+      skills: record.skills
+    }));
+  }
+
+  private async findFrequentCollaborators(userId: string): Promise<any[]> {
+    // Query Graph RAG for frequent collaborators
+    const contacts = await this.memoryAssistant.queryGraphRAG(
+      `MATCH (u:User {id: $userId})-[:COLLABORATED_WITH]->(c:Contact)
+       RETURN c, COUNT(*) as collaboration_count
+       ORDER BY collaboration_count DESC
+       LIMIT 10`,
+      { userId }
+    );
+
+    return contacts.map((record: any) => ({
+      id: record.c.id,
+      name: record.c.name,
+      confidence: Math.min(record.collaboration_count / 20, 1),
+      collaborationCount: record.collaboration_count
+    }));
+  }
+
+  private assessUrgency(userState: UserState): 'low' | 'medium' | 'high' {
+    // Assess urgency based on user's emotional state
+    const stress = userState.fight + userState.flight;
+    if (stress > 0.7) return 'high';
+    if (stress > 0.4) return 'medium';
+    return 'low';
+  }
+
+  private async sendInvitationNotification(invitation: CollaborationInvitation): Promise<void> {
+    // Implementation would send actual notification
+    console.log(`Invitation sent to ${invitation.recipient_id} for ${invitation.resource_type} ${invitation.resource_id}`);
+  }
+
+  private async sendResponseNotification(invitation: CollaborationInvitation): Promise<void> {
+    // Implementation would send actual notification
+    console.log(`Invitation ${invitation.status} by ${invitation.recipient_id}`);
   }
 }

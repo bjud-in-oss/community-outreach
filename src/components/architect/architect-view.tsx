@@ -8,6 +8,7 @@ import { AgentHierarchyVisualizer } from './agent-hierarchy-visualizer';
 import { LimbicStateMonitor } from './limbic-state-monitor';
 import { OperationalLogExplorer } from './operational-log-explorer';
 import { DevOpsPullRequestQueue } from './devops-pull-request-queue';
+import { SystemHealthMonitor } from './system-health-monitor';
 import { UserRole } from '@/types';
 
 /**
@@ -34,7 +35,7 @@ export function ArchitectView({
   fullScreen = false, 
   onAccessDenied 
 }: ArchitectViewProps) {
-  const [activeTab, setActiveTab] = useState<'hierarchy' | 'limbic' | 'logs' | 'devops'>('hierarchy');
+  const [activeTab, setActiveTab] = useState<'health' | 'hierarchy' | 'limbic' | 'logs' | 'devops'>('health');
   const [isAuthorized, setIsAuthorized] = useState(false);
 
   useEffect(() => {
@@ -71,6 +72,7 @@ export function ArchitectView({
   }
 
   const tabs = [
+    { id: 'health' as const, label: 'System Health', icon: '💚' },
     { id: 'hierarchy' as const, label: 'Agent Hierarchy', icon: '🌳' },
     { id: 'limbic' as const, label: 'Limbic Monitor', icon: '🧠' },
     { id: 'logs' as const, label: 'Operation Logs', icon: '📋' },
@@ -129,6 +131,15 @@ export function ArchitectView({
 
         {/* Tab Content */}
         <div className="space-y-6">
+          {activeTab === 'health' && (
+            <div>
+              <h2 className="text-xl font-semibold text-gray-900 mb-4">
+                System Health Monitor
+              </h2>
+              <SystemHealthMonitor />
+            </div>
+          )}
+
           {activeTab === 'hierarchy' && (
             <div>
               <h2 className="text-xl font-semibold text-gray-900 mb-4">

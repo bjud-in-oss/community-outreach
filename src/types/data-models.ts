@@ -311,6 +311,9 @@ export interface CommunicationPermissions {
   
   /** Can send legacy messages */
   send_legacy_messages: boolean;
+  
+  /** Can use Empatibryggan communication coaching */
+  enable_empathy_bridge: boolean;
 }
 
 /**
