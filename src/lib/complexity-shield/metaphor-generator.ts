@@ -308,9 +308,9 @@ export class MetaphorGenerator {
   getMetaphorsByCategory(category: MetaphorTemplate['category']): MetaphorTemplate[] {
     const result: MetaphorTemplate[] = [];
     
-    for (const metaphorList of this.metaphors.values()) {
+    Array.from(this.metaphors.values()).forEach(metaphorList => {
       result.push(...metaphorList.filter(m => m.category === category));
-    }
+    });
     
     return result;
   }

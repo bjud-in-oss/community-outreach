@@ -15,11 +15,12 @@ import { systemIntegrationService } from '@/services/system-integration-service'
 import { systemDiagnostics } from '@/lib/system-diagnostics';
 import type { 
   SystemHealthStatus, 
-  SystemMetrics, 
-  DiagnosticReport,
-  SystemStatusSummary,
-  SystemAlert
+  SystemMetrics
 } from '@/services/system-integration-service';
+import type {
+  DiagnosticReport,
+  SystemAlert
+} from '@/lib/system-diagnostics';
 
 interface SystemHealthMonitorProps {
   refreshInterval?: number;
@@ -33,7 +34,7 @@ export function SystemHealthMonitor({
   const [healthStatus, setHealthStatus] = useState<SystemHealthStatus | null>(null);
   const [metrics, setMetrics] = useState<SystemMetrics | null>(null);
   const [diagnosticReport, setDiagnosticReport] = useState<DiagnosticReport | null>(null);
-  const [statusSummary, setStatusSummary] = useState<SystemStatusSummary | null>(null);
+  const [statusSummary, setStatusSummary] = useState<any>(null);
   const [activeAlerts, setActiveAlerts] = useState<SystemAlert[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);

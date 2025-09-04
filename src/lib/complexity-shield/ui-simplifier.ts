@@ -248,9 +248,9 @@ export class UISimplifier {
   getElementVisibility(user: User): Record<string, boolean> {
     const visibility: Record<string, boolean> = {};
     
-    for (const [element, rule] of this.visibilityRules) {
+    Array.from(this.visibilityRules.entries()).forEach(([element, rule]) => {
       visibility[element] = rule.visibility[user.user_role];
-    }
+    });
     
     return visibility;
   }
@@ -261,11 +261,11 @@ export class UISimplifier {
   getHiddenElements(userRole: 'senior' | 'architect'): string[] {
     const hidden: string[] = [];
     
-    for (const [element, rule] of this.visibilityRules) {
+    Array.from(this.visibilityRules.entries()).forEach(([element, rule]) => {
       if (!rule.visibility[userRole]) {
         hidden.push(element);
       }
-    }
+    });
     
     return hidden;
   }
@@ -276,11 +276,11 @@ export class UISimplifier {
   getAlternativeElements(userRole: 'senior' | 'architect'): Record<string, string> {
     const alternatives: Record<string, string> = {};
     
-    for (const [element, rule] of this.visibilityRules) {
+    Array.from(this.visibilityRules.entries()).forEach(([element, rule]) => {
       if (!rule.visibility[userRole] && rule.alternative) {
         alternatives[element] = rule.alternative;
       }
-    }
+    });
     
     return alternatives;
   }

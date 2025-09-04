@@ -483,4 +483,25 @@ export class ChroniclerService {
     const currentIndex = stepOrder.indexOf(currentStep);
     return currentIndex < stepOrder.length - 1 ? stepOrder[currentIndex + 1] : 'complete';
   }
+
+  /**
+   * Process reflection for system integration
+   */
+  async processReflection(text: string): Promise<{ actions: any[] }> {
+    // Simple implementation for system integration
+    return {
+      actions: [{
+        type: 'create_reflection',
+        parameters: { text },
+        requires_approval: false
+      }]
+    };
+  }
 }
+
+// Export singleton instance
+export const chroniclerService = new ChroniclerService(
+  {} as any, // Will be properly initialized later
+  {} as any, // Will be properly initialized later  
+  {} as any  // Will be properly initialized later
+);

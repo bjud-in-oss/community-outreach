@@ -5,14 +5,14 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { RealTimeCollaborationService } from '@/services/real-time-collaboration-service';
 import { 
-  CollaborationService, 
   CollaborationState, 
   CollaborationUser, 
   BlockLock, 
   SemanticDiff,
   CollaborationEvent 
-} from '@/services/collaboration-service';
+} from '@/types/collaboration';
 import { ContentBlock } from '@/types/editor';
 
 export interface UseCollaborationOptions {
@@ -67,10 +67,11 @@ export function useCollaboration({
     locks: new Map(),
     pendingDiffs: new Map(),
     isConnected: false,
-    connectionStatus: 'disconnected'
+    connectionStatus: 'disconnected',
+    lastSync: new Date()
   });
   
-  const serviceRef = useRef<CollaborationService | null>(null);
+  const serviceRef = useRef<RealTimeCollaborationService | null>(null);
   const eventHandlersRef = useRef<Map<string, Set<Function>>>(new Map());
   
   // Initialize collaboration service
@@ -79,7 +80,7 @@ export function useCollaboration({
       return;
     }
     
-    serviceRef.current = new CollaborationService(documentId, userId, userName);
+    serviceRef.current = new RealTimeCollaborationService(documentId, userId, userName);
     
     // Set up event handlers to update state
     const handleStateUpdate = () => {
@@ -209,11 +210,11 @@ export function useCollaboration({
     return () => {
       if (serviceRef.current) {
         // Remove all tracked event handlers
-        for (const [eventType, handlers] of eventHandlersRef.current.entries()) {
-          for (const handler of handlers) {
-            serviceRef.current.off(eventType, handler as any);
-          }
-        }
+        Array.from(eventHandlersRef.current.entries()).forEach(([eventType, handlers]) => {
+          Array.from(handlers).forEach(handler => {
+            serviceRef.current!.off(eventType, handler as any);
+          });
+        });
       }
       eventHandlersRef.current.clear();
     };
@@ -222,7 +223,7 @@ export function useCollaboration({
   // Convert Map-based state to plain objects for easier consumption
   const activeUsers = Array.from(collaborationState.users.values()).filter(user => user.isOnline);
   const lockedBlocks = Object.fromEntries(
-    Array.from(collaborationState.locks.entries()).map(([blockId, lock]) => [blockId, lock.userId])
+    Array.from(collaborationState.locks.entries()).map(([blockId, lock]) => [blockId, lock.user_id])
   );
   const pendingDiffs = Array.from(collaborationState.pendingDiffs.values());
   

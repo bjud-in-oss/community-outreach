@@ -10,7 +10,7 @@ import {
  */
 export interface ResourceApprovalRequest {
   /** Type of operation requesting approval */
-  operation: 'clone_agent' | 'llm_call' | 'memory_access' | 'external_api';
+  operation: 'clone_agent' | 'llm_call' | 'memory_access' | 'external_api' | 'autonomous_mode';
   
   /** Agent requesting the operation */
   requestingAgentId: string;

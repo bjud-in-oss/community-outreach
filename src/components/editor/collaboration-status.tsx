@@ -10,7 +10,16 @@
 'use client';
 
 import React from 'react';
-import { CollaborationUser } from '@/services/collaboration-service';
+// Temporary type definition until collaboration service is fully implemented
+interface CollaborationUser {
+  id: string;
+  name: string;
+  avatar?: string;
+  status: 'online' | 'offline' | 'away';
+  color?: string;
+  isOnline?: boolean;
+  lastSeen?: Date;
+}
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -165,7 +174,7 @@ function UserAvatar({
           <div className="text-center">
             <p className="font-medium">{user.name}</p>
             <p className="text-xs text-gray-500">
-              {user.isOnline ? 'Online' : `Last seen ${user.lastSeen.toLocaleTimeString()}`}
+              {user.isOnline ? 'Online' : `Last seen ${user.lastSeen?.toLocaleTimeString() || 'Unknown'}`}
             </p>
           </div>
         </TooltipContent>

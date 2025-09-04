@@ -482,7 +482,7 @@ export function WYSIWYGEditor({
     
     // Send update to collaborators
     if (collaborationEnabled) {
-      const updatedBlock = { ...currentBlock, ...updates };
+      const updatedBlock = { ...currentBlock, ...updates } as ContentBlock;
       await collaboration.sendBlockUpdate(blockId, updatedBlock);
     }
   }, [collaborationEnabled, collaboration, state.document.blocks]);

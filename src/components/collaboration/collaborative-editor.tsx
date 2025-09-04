@@ -103,7 +103,7 @@ export function CollaborativeEditor({
       );
 
       setBlockLocks(prev => [...prev.filter(l => !(l.block_id === blockId && l.user_id === userId)), lock]);
-      setEditingBlocks(prev => new Set([...prev, blockId]));
+      setEditingBlocks(prev => new Set(Array.from(prev).concat([blockId])));
 
     } catch (error) {
       console.error('Failed to acquire block lock:', error);
@@ -119,7 +119,7 @@ export function CollaborativeEditor({
         !(lock.block_id === blockId && lock.user_id === userId)
       ));
       setEditingBlocks(prev => {
-        const newSet = new Set(prev);
+        const newSet = new Set(Array.from(prev));
         newSet.delete(blockId);
         return newSet;
       });
@@ -141,7 +141,7 @@ export function CollaborativeEditor({
         !(lock.block_id === blockId && lock.user_id === userId)
       ));
       setEditingBlocks(prev => {
-        const newSet = new Set(prev);
+        const newSet = new Set(Array.from(prev));
         newSet.delete(blockId);
         return newSet;
       });

@@ -66,8 +66,10 @@ export class ContactEncryption {
     password: string
   ): Promise<EncryptedContactDetails> {
     // Generate salt and IV
-    const salt = crypto.getRandomValues(new Uint8Array(this.config.saltLength));
-    const iv = crypto.getRandomValues(new Uint8Array(this.config.ivLength));
+    const saltArray = new Uint8Array(this.config.saltLength);
+    const salt = crypto.getRandomValues(saltArray);
+    const ivArray = new Uint8Array(this.config.ivLength);
+    const iv = crypto.getRandomValues(ivArray);
     
     // Derive key from password
     const key = await this.deriveKey(password, salt);
@@ -87,8 +89,8 @@ export class ContactEncryption {
     const encryption_metadata: EncryptionMetadata = {
       algorithm: this.config.algorithm,
       kdf: 'PBKDF2',
-      salt: this.arrayBufferToBase64(salt),
-      iv: this.arrayBufferToBase64(iv),
+      salt: this.arrayBufferToBase64(salt.buffer),
+      iv: this.arrayBufferToBase64(iv.buffer),
       encrypted_at: new Date()
     };
     
@@ -158,7 +160,7 @@ export class ContactEncryption {
     return crypto.subtle.deriveKey(
       {
         name: 'PBKDF2',
-        salt: salt,
+        salt: new Uint8Array(salt.buffer.slice(salt.byteOffset, salt.byteOffset + salt.byteLength)),
         iterations: this.config.iterations,
         hash: 'SHA-256'
       },

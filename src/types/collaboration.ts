@@ -6,6 +6,120 @@
 import { UserState } from './index';
 
 /**
+ * Collaboration state for real-time collaboration
+ */
+export interface CollaborationState {
+  /** Document ID being collaborated on */
+  documentId: string;
+  
+  /** Connection status */
+  isConnected: boolean;
+  
+  /** Connection status details */
+  connectionStatus: 'connecting' | 'connected' | 'disconnected' | 'error';
+  
+  /** Active users in the session */
+  users: Map<string, CollaborationUser>;
+  
+  /** Current block locks */
+  locks: Map<string, BlockLock>;
+  
+  /** Pending semantic diffs */
+  pendingDiffs: Map<string, SemanticDiff>;
+  
+  /** Last sync timestamp */
+  lastSync: Date;
+}
+
+/**
+ * Collaboration user information
+ */
+export interface CollaborationUser {
+  /** User ID */
+  id: string;
+  
+  /** Display name */
+  name: string;
+  
+  /** Avatar URL */
+  avatar?: string;
+  
+  /** Online status */
+  isOnline: boolean;
+  
+  /** User status */
+  status: 'online' | 'offline' | 'away';
+  
+  /** Current cursor position */
+  cursor?: CursorPosition;
+  
+  /** User color for UI */
+  color: string;
+  
+  /** Permission level */
+  permission: PermissionLevel;
+}
+
+/**
+ * Semantic diff for conflict resolution
+ */
+export interface SemanticDiff {
+  /** Diff ID */
+  id: string;
+  
+  /** Diff type */
+  type: 'addition' | 'deletion' | 'modification';
+  
+  /** Content description */
+  content: string;
+  
+  /** Position in document */
+  position: number;
+  
+  /** User who made the change */
+  author: string;
+  
+  /** Timestamp of change */
+  timestamp: Date;
+  
+  /** Before state */
+  before: any;
+  
+  /** After state */
+  after: any;
+  
+  /** List of changes */
+  changes: Array<{
+    type: 'addition' | 'deletion' | 'modification';
+    path: string;
+    description: string;
+  }>;
+  
+  /** Conflict resolution status */
+  status?: 'pending' | 'resolved' | 'ignored';
+}
+
+/**
+ * Collaboration event for real-time updates
+ */
+export interface CollaborationEvent {
+  /** Event ID */
+  id: string;
+  
+  /** Event type */
+  type: 'user_joined' | 'user_left' | 'block_locked' | 'block_unlocked' | 'content_changed' | 'conflict_detected';
+  
+  /** User who triggered the event */
+  userId: string;
+  
+  /** Event data */
+  data: any;
+  
+  /** Event timestamp */
+  timestamp: Date;
+}
+
+/**
  * Collaboration invitation
  * Requirement 20.1: Secure invitation system with permission levels
  */

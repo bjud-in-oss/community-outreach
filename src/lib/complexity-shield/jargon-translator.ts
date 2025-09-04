@@ -134,18 +134,18 @@ export class JargonTranslator {
     let translatedText = text;
     
     // Apply translations based on context
-    for (const [technical, translation] of this.translations) {
+    Array.from(this.translations.entries()).forEach(([technical, translation]) => {
       const regex = new RegExp(`\\b${this.escapeRegex(technical)}\\b`, 'gi');
       translatedText = translatedText.replace(regex, translation.friendly);
-    }
+    });
     
     // Apply contextual translations if available
     const contextTranslations = this.contextualTranslations.get(context.app_context);
     if (contextTranslations) {
-      for (const [technical, translation] of contextTranslations) {
+      Array.from(contextTranslations.entries()).forEach(([technical, translation]) => {
         const regex = new RegExp(`\\b${this.escapeRegex(technical)}\\b`, 'gi');
         translatedText = translatedText.replace(regex, translation.friendly);
-      }
+      });
     }
     
     return translatedText;

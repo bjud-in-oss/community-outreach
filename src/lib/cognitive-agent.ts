@@ -17,6 +17,7 @@ import {
   ResourceApprovalRequest,
   ResourceApprovalResponse 
 } from './resource-governor';
+import { llmService, LLMRequest } from './llm-service';
 import { v4 as uuidv4 } from 'uuid';
 
 /**
@@ -616,21 +617,66 @@ export class CognitiveAgentImpl implements CognitiveAgent {
   }
 
   private async _coordinatorEmerge(): Promise<EmergenceResult> {
-    // Coordinator-specific emergence logic
+    // Coordinator-specific emergence logic using LLM
     this._resourceUsage.computeUnits += 10;
     
-    // Simulate coordination success/failure based on context
-    const successProbability = this._calculateSuccessProbability();
-    if (Math.random() < successProbability) {
-      return {
-        success: true,
-        result: 'Coordination tasks completed successfully'
+    try {
+      // Use fast, free LLM for coordination tasks
+      const provider = llmService.getBestProvider({ 
+        speed: 'ultra-fast', 
+        cost: 'free', 
+        capability: 'chat' 
+      });
+
+      const llmRequest: LLMRequest = {
+        messages: [
+          {
+            role: 'system',
+            content: `You are a Coordinator cognitive agent. Your task is to coordinate and manage sub-tasks effectively. 
+                     Current context: ${this.contextThread.task_definition}
+                     Goal: ${this.contextThread.top_level_goal}
+                     
+                     Analyze the current situation and determine if coordination tasks can be completed successfully.
+                     Respond with either "SUCCESS: [brief explanation]" or "FAILURE: [brief explanation]"`
+          },
+          {
+            role: 'user',
+            content: `Please coordinate the following task: ${this.contextThread.task_definition}`
+          }
+        ],
+        maxTokens: 150,
+        temperature: 0.3,
+        provider
       };
-    } else {
-      return {
-        success: false,
-        error: 'Failed to coordinate sub-tasks effectively'
-      };
+
+      const response = await llmService.chat(llmRequest);
+      this._resourceUsage.llmCalls++;
+
+      if (response.content.toUpperCase().startsWith('SUCCESS')) {
+        return {
+          success: true,
+          result: response.content.replace(/^SUCCESS:\s*/i, '')
+        };
+      } else {
+        return {
+          success: false,
+          error: response.content.replace(/^FAILURE:\s*/i, '')
+        };
+      }
+    } catch (error) {
+      // Fallback to simple logic if LLM fails
+      const successProbability = this._calculateSuccessProbability();
+      if (Math.random() < successProbability) {
+        return {
+          success: true,
+          result: 'Coordination tasks completed successfully'
+        };
+      } else {
+        return {
+          success: false,
+          error: 'Failed to coordinate sub-tasks effectively'
+        };
+      }
     }
   }
 

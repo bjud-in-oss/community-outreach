@@ -14,31 +14,13 @@ export class AgentFactoryImpl implements AgentFactory {
   private _agents: Map<string, CognitiveAgent> = new Map();
 
   /**
-   * Create a new cognitive agent with simplified interface
+   * Create a new cognitive agent
    */
   async createAgent(
+    role: AgentRole,
     config: ConfigurationProfile,
-    role: AgentRole
+    contextThread: ContextThread
   ): Promise<CognitiveAgent> {
-    // Create a basic context thread
-    const contextThread: ContextThread = {
-      id: `thread-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      top_level_goal: 'Process user input',
-      task_definition: 'Handle user request',
-      configuration_profile: config,
-      memory_scope: config.memory_scope,
-      resource_budget: config.resource_budget || {
-        max_llm_calls: 10,
-        max_compute_units: 100,
-        max_storage_bytes: 1024 * 1024,
-        max_execution_time: 30000
-      },
-      recursion_depth: 0,
-      workspace_branch: 'main',
-      created_at: new Date(),
-      updated_at: new Date()
-    };
-
     const agent = new CognitiveAgentImpl(role, config, contextThread);
     this._agents.set(agent.id, agent);
     return agent;

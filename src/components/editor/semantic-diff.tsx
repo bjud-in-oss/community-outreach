@@ -8,7 +8,22 @@
 'use client';
 
 import React from 'react';
-import { SemanticDiff } from '@/services/collaboration-service';
+// Temporary type definition until collaboration service is fully implemented
+interface SemanticDiff {
+  id: string;
+  type: 'addition' | 'deletion' | 'modification';
+  content: string;
+  position: number;
+  author: string;
+  timestamp: Date;
+  before: ContentBlock;
+  after: ContentBlock;
+  changes: Array<{
+    type: 'addition' | 'deletion' | 'modification';
+    path: string;
+    description: string;
+  }>;
+}
 import { ContentBlock, TextBlock, HeadingBlock } from '@/types/editor';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -119,7 +134,7 @@ function renderBlockContent(block: ContentBlock): React.ReactNode {
     default:
       return (
         <div className="text-gray-500 italic">
-          Unknown block type: {block.type}
+          Unknown block type: {(block as any).type}
         </div>
       );
   }

@@ -629,3 +629,12 @@ export class CollaborationService {
     console.log(`Invitation ${invitation.status} by ${invitation.recipient_id}`);
   }
 }
+
+// Re-export types for convenience
+export type {
+  CollaborationState,
+  CollaborationUser,
+  SemanticDiff,
+  BlockLock,
+  CollaborationEvent
+} from '../types/collaboration';
